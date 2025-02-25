@@ -167,16 +167,32 @@ namespace ICSharpCode.Decompiler.CSharp.Transforms
 			"System.Runtime.CompilerServices.NullableContextAttribute",
 			"System.Runtime.CompilerServices.NativeIntegerAttribute",
 			"System.Runtime.CompilerServices.RefSafetyRulesAttribute",
+			"System.Runtime.CompilerServices.ScopedRefAttribute",
+			"System.Runtime.CompilerServices.RequiresLocationAttribute",
 			"Microsoft.CodeAnalysis.EmbeddedAttribute",
+		};
+
+		internal static readonly HashSet<string> nonEmbeddedAttributeNames = new HashSet<string>() {
+			// non-embedded attributes, but we still want to remove them
+			"System.Runtime.CompilerServices.CompilerFeatureRequiredAttribute",
+			"System.Runtime.CompilerServices.RequiredMemberAttribute",
+			"System.Runtime.CompilerServices.IsExternalInit",
 		};
 
 		public override void VisitTypeDeclaration(TypeDeclaration typeDeclaration)
 		{
 			var typeDefinition = typeDeclaration.GetSymbol() as ITypeDefinition;
-			if (typeDefinition == null || !attributeNames.Contains(typeDefinition.FullName))
+			if (typeDefinition == null)
 				return;
-			if (!typeDefinition.HasAttribute(KnownAttribute.Embedded))
+
+			if (attributeNames.Contains(typeDefinition.FullName))
+			{
+				if (!typeDefinition.HasAttribute(KnownAttribute.Embedded))
+					return;
+			}
+			else if (!nonEmbeddedAttributeNames.Contains(typeDefinition.FullName))
 				return;
+
 			if (typeDeclaration.Parent is NamespaceDeclaration ns && ns.Members.Count == 1)
 				ns.Remove();
 			else

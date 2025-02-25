@@ -1,5 +1,5 @@
 ﻿using System;
-#if ROSLYN4
+#if CS100
 using System.Runtime.InteropServices;
 #endif
 
@@ -44,7 +44,7 @@ namespace ICSharpCode.Decompiler.Tests.TestCases.Pretty
 		public record PairWithPrimaryCtor<A, B>(A First, B Second);
 
 		public record PrimaryCtor(int A, string B);
-		public record PrimaryCtorWithAttribute([RecordTest("param")] [property: RecordTest("property")][field: RecordTest("field")] int a);
+		public record PrimaryCtorWithAttribute([RecordTest("param")][property: RecordTest("property")][field: RecordTest("field")] int a);
 		public record PrimaryCtorWithField(int A, string B)
 		{
 			public double C = 1.0;
@@ -169,7 +169,7 @@ namespace ICSharpCode.Decompiler.Tests.TestCases.Pretty
 		public record struct PairWithPrimaryCtor<A, B>(A First, B Second);
 
 		public record struct PrimaryCtor(int A, string B);
-		public record struct PrimaryCtorWithAttribute([RecordTest("param")] [property: RecordTest("property")][field: RecordTest("field")] int a);
+		public record struct PrimaryCtorWithAttribute([RecordTest("param")][property: RecordTest("property")][field: RecordTest("field")] int a);
 		public record struct PrimaryCtorWithField(int A, string B)
 		{
 			public double C = 1.0;
@@ -241,23 +241,4 @@ namespace ICSharpCode.Decompiler.Tests.TestCases.Pretty
 		public required dynamic D;
 	}
 #endif
-}
-namespace System.Runtime.CompilerServices
-{
-	[AttributeUsage(AttributeTargets.All, AllowMultiple = true, Inherited = false)]
-	internal sealed class CompilerFeatureRequiredAttribute : Attribute
-	{
-		public CompilerFeatureRequiredAttribute(string featureName)
-		{
-		}
-	}
-
-	internal class IsExternalInit
-	{
-	}
-
-	[AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct | AttributeTargets.Property | AttributeTargets.Field, AllowMultiple = false, Inherited = false)]
-	internal sealed class RequiredMemberAttribute : Attribute
-	{
-	}
 }

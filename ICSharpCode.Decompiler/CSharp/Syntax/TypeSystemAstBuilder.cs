@@ -148,6 +148,12 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 		public bool ShowAttributes { get; set; }
 
 		/// <summary>
+		/// Controls whether to sort attributes, if set to <see langword="false" /> attributes are shown in metadata order.
+		/// The default value is <see langword="false" />.
+		/// </summary>
+		public bool SortAttributes { get; set; }
+
+		/// <summary>
 		/// Controls whether to use fully-qualified type names or short type names.
 		/// The default value is <see langword="false" />.
 		/// </summary>
@@ -224,6 +230,16 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 		/// Controls whether C# 10 "record" struct types are supported.
 		/// </summary>
 		public bool SupportRecordStructs { get; set; }
+
+		/// <summary>
+		/// Controls whether C# 11 "operator >>>" is supported.
+		/// </summary>
+		public bool SupportUnsignedRightShift { get; set; }
+
+		/// <summary>
+		/// Controls whether C# 11 "operator checked" is supported.
+		/// </summary>
+		public bool SupportOperatorChecked { get; set; }
 
 		/// <summary>
 		/// Controls whether all fully qualified type names should be prefixed with "global::".
@@ -362,14 +378,9 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 				for (int i = 0; i < fpt.ParameterTypes.Length; i++)
 				{
 					var paramDecl = new ParameterDeclaration();
-					paramDecl.ParameterModifier = fpt.ParameterReferenceKinds[i] switch {
-						ReferenceKind.In => ParameterModifier.In,
-						ReferenceKind.Ref => ParameterModifier.Ref,
-						ReferenceKind.Out => ParameterModifier.Out,
-						_ => ParameterModifier.None,
-					};
+					paramDecl.ParameterModifier = fpt.ParameterReferenceKinds[i];
 					IType parameterType = fpt.ParameterTypes[i];
-					if (paramDecl.ParameterModifier != ParameterModifier.None && parameterType is ByReferenceType brt)
+					if (paramDecl.ParameterModifier != ReferenceKind.None && parameterType is ByReferenceType brt)
 					{
 						paramDecl.Type = ConvertType(brt.ElementType);
 					}
@@ -528,6 +539,7 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 			{
 				// Handle nested types
 				result.Target = ConvertTypeHelper(genericType.DeclaringType, typeArguments);
+				AddTypeAnnotation(result.Target, genericType.DeclaringType);
 			}
 			else
 			{
@@ -787,16 +799,72 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 			return attr;
 		}
 
-		private IEnumerable<AttributeSection> ConvertAttributes(IEnumerable<IAttribute> attributes)
+		private IEnumerable<AttributeSection> ConvertAttributes(IEnumerable<IAttribute> attributes, string target = null)
 		{
-			return attributes.Select(a => new AttributeSection(ConvertAttribute(a)));
-		}
-
-		private IEnumerable<AttributeSection> ConvertAttributes(IEnumerable<IAttribute> attributes, string target)
-		{
-			return attributes.Select(a => new AttributeSection(ConvertAttribute(a)) {
-				AttributeTarget = target
+			if (SortAttributes)
+				attributes = attributes.OrderBy(a => a, new DelegateComparer<IAttribute>(CompareAttribute));
+			return attributes.Select(a => {
+				var section = new AttributeSection(ConvertAttribute(a));
+				if (target != null)
+					section.AttributeTarget = target;
+				return section;
 			});
+
+			static int CompareAttribute(IAttribute a, IAttribute b)
+			{
+				int result = CompareType(a.AttributeType, b.AttributeType);
+				if (result != 0)
+					return result;
+				if (a.HasDecodeErrors && b.HasDecodeErrors)
+					return 0;
+				if (a.HasDecodeErrors)
+					return -1;
+				if (b.HasDecodeErrors)
+					return 1;
+				result = a.FixedArguments.Length - b.FixedArguments.Length;
+				if (result != 0)
+					return result;
+				for (int i = 0; i < a.FixedArguments.Length; i++)
+				{
+					var argA = a.FixedArguments[i];
+					var argB = b.FixedArguments[i];
+					result = CompareType(argA.Type, argB.Type);
+					if (result != 0)
+						return result;
+					if (argA.Value is IComparable compA && argB.Value is IComparable compB)
+						result = compA.CompareTo(compB);
+					else
+						result = 0;
+					if (result != 0)
+						return result;
+				}
+				result = a.NamedArguments.Length - b.NamedArguments.Length;
+				if (result != 0)
+					return result;
+				for (int i = 0; i < a.NamedArguments.Length; i++)
+				{
+					var argA = a.NamedArguments[i];
+					var argB = b.NamedArguments[i];
+					result = argA.Name.CompareTo(argB.Name);
+					if (result != 0)
+						return result;
+					result = CompareType(argA.Type, argB.Type);
+					if (result != 0)
+						return result;
+					if (argA.Value is IComparable compA && argB.Value is IComparable compB)
+						result = compA.CompareTo(compB);
+					else
+						result = 0;
+					if (result != 0)
+						return result;
+				}
+				return 0;
+			}
+
+			static int CompareType(IType a, IType b)
+			{
+				return a.FullName.CompareTo(b.FullName);
+			}
 		}
 		#endregion
 
@@ -1638,24 +1706,9 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 			if (parameter == null)
 				throw new ArgumentNullException(nameof(parameter));
 			ParameterDeclaration decl = new ParameterDeclaration();
-			if (parameter.IsRef)
-			{
-				decl.ParameterModifier = ParameterModifier.Ref;
-			}
-			else if (parameter.IsOut)
-			{
-				decl.ParameterModifier = ParameterModifier.Out;
-			}
-			else if (parameter.IsIn)
-			{
-				decl.ParameterModifier = ParameterModifier.In;
-			}
-			else if (parameter.IsParams)
-			{
-				decl.ParameterModifier = ParameterModifier.Params;
-			}
-			decl.IsRefScoped = parameter.Lifetime.RefScoped;
-			decl.IsValueScoped = parameter.Lifetime.ValueScoped;
+			decl.ParameterModifier = parameter.ReferenceKind;
+			decl.IsParams = parameter.IsParams;
+			decl.IsScopedRef = parameter.Lifetime.ScopedRef;
 			if (ShowAttributes)
 			{
 				decl.Attributes.AddRange(ConvertAttributes(parameter.GetAttributes()));
@@ -1675,7 +1728,8 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 			{
 				decl.Name = parameter.Name;
 			}
-			if (parameter.IsOptional && parameter.HasConstantValueInSignature && this.ShowConstantValues)
+			if (parameter.IsOptional && decl.ParameterModifier is ReferenceKind.None or ReferenceKind.In or ReferenceKind.RefReadOnly
+				&& parameter.HasConstantValueInSignature && this.ShowConstantValues)
 			{
 				try
 				{
@@ -1970,6 +2024,10 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 				decl.AddAnnotation(new MemberResolveResult(null, field));
 			}
 			decl.ReturnType = ConvertType(field.ReturnType);
+			if (decl.ReturnType is ComposedType ct && ct.HasRefSpecifier && field.ReturnTypeIsRefReadOnly)
+			{
+				ct.HasReadOnlySpecifier = true;
+			}
 			Expression initializer = null;
 			if (field.IsConst && this.ShowConstantValues)
 			{
@@ -2211,8 +2269,14 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 
 		EntityDeclaration ConvertOperator(IMethod op)
 		{
-			OperatorType? opType = OperatorDeclaration.GetOperatorType(op.Name);
+			int dot = op.Name.LastIndexOf('.');
+			string name = op.Name.Substring(dot + 1);
+			OperatorType? opType = OperatorDeclaration.GetOperatorType(name);
 			if (opType == null)
+				return ConvertMethod(op);
+			if (opType == OperatorType.UnsignedRightShift && !SupportUnsignedRightShift)
+				return ConvertMethod(op);
+			if (!SupportOperatorChecked && OperatorDeclaration.IsChecked(opType.Value))
 				return ConvertMethod(op);
 
 			OperatorDeclaration decl = new OperatorDeclaration();
@@ -2237,6 +2301,7 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 				decl.AddAnnotation(new MemberResolveResult(null, op));
 			}
 			decl.Body = GenerateBodyBlock();
+			decl.PrivateImplementationType = GetExplicitInterfaceType(op);
 			return decl;
 		}
 
@@ -2355,8 +2420,14 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 						{
 							m |= Modifiers.Sealed;
 						}
-						if (member.IsAbstract && member.IsStatic)
-							m |= Modifiers.Abstract;
+						if (member.IsStatic)
+						{
+							// modifiers of static members in interfaces:
+							if (member.IsAbstract)
+								m |= Modifiers.Abstract;
+							else if (member.IsVirtual && !member.IsOverride)
+								m |= Modifiers.Virtual;
+						}
 					}
 					else
 					{
